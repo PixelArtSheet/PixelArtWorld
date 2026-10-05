@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PixelArtWorld</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #111;
+  color: white;
+  overflow: hidden;
+}
+
+header {
+  height: 70px;
+  background: #181818;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid #333;
+}
+
+.logo {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.stats {
+  display: flex;
+  gap: 15px;
+  font-size: 14px;
+}
+
+.stat {
+  background: #252525;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+#world {
+  position: absolute;
+  top: 70px;
+  left: 0;
+  right: 0;
+  bottom: 80px;
+  overflow: hidden;
+  background: #222;
+  touch-action: none;
+}
+
+#grid {
+  position: absolute;
+  width: 1000px;
+  height: 1000px;
+  display: grid;
+  grid-template-columns: repeat(1000, 1px);
+  grid-template-rows: repeat(1000, 1px);
+  transform-origin: 0 0;
+}
+
+.pixel {
+  width: 1px;
+  height: 1px;
+  background: #eee;
+}
+
+.controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  min-height: 80px;
+  background: #181818;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px;
+  border-top: 1px solid #333;
+  z-index: 10;
+}
+
+input, button {
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+}
+
+#username {
+  width: 150px;
+}
+
+#color {
+  width: 55px;
+  height: 45px;
+  padding: 3px;
+}
+
+button {
+  background: #fff;
+  color: #111;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+button:active {
+  transform: scale(.96);
+}
+
+#buy {
+  background: #00e676;
+}
+
+#message {
+  position: fixed;
+  top: 85px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  padding: 12px 18px;
+  border-radius: 10px;
+  display: none;
+  z-index: 100;
+}
+
+#panel {
+  position: fixed;
+  right: 15px;
+  top: 85px;
+  width: 250px;
+  max-height: 70vh;
+  overflow: auto;
+  background: #181818;
+  border: 1px solid #444;
+  border-radius: 15px;
+  padding: 15px;
+  display: none;
+  z-index: 50;
+}
+
+#panel h2 {
+  margin-top: 0;
+}
+
+.owner {
+  padding: 8px;
+  border-bottom: 1px solid #333;
+}
+
+@media(max-width:600px) {
+  .stats {
+    display: none;
+  }
+
+  header {
+    justify-content: center;
+  }
+
+  .controls {
+    flex-wrap: wrap;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="logo">🟩 PixelArtWorld</div>
+
+  <div class="stats">
+    <div class="stat">
+      💰 €0.10 / pixel
+    </div>
+
+    <div class="stat">
+      🟩 <span id="claimed">0</span>
+    </div>
+
+    <div class="stat">
+      📊 <span id="remaining">1,000,000</span> left
+    </div>
+  </div>
+</header>
+
+<div id="world">
+  <div id="grid"></div>
+</div>
+
+<div id="message"></div>
+
+<div id="panel">
+  <h2>🏆 Leaderboard</h2>
+  <div id="leaders">Loading...</div>
+</div>
+
+<div class="controls">
+
+  <input
+    id="username"
+    maxlength="20"
+    placeholder="Username"
+  >
+
+  <input
+    id="color"
+    type="color"
+    value="#ff0000"
+  >
+
+  <button id="buy">
+    💰 Buy pixel — €0.10
+  </button>
+
+  <button id="leaderboard">
+    🏆
+  </button>
+
+</div>
+
+<script>
+
+const SIZE = 1000;
+
+const grid = document.getElementById("grid");
+const world = document.getElementById("world");
+
+let pixels = {};
+
+let scale = 0.5;
+let offsetX = 0;
+let offsetY = 0;
+
+let dragging = false;
+let startX = 0;
+let startY = 0;
+
+let selectedX = null;
+let selectedY = null;
+
+/* ---------------- GRID ---------------- */
+
+function createGrid() {
+
+  /*
+    We don't create one million DOM elements.
+    The grid is drawn with CSS and only owned
+    pixels are displayed separately.
+  */
+
+  grid.style.backgroundColor = "#eee";
+
+  updateTransform();
+}
+
+function updateTransform() {
+
+  grid.style.transform =
+    `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+}
+
+/* ---------------- POSITION ---------------- */
+
+function getPixelFromScreen(clientX, clientY) {
+
+  const rect = world.getBoundingClientRect();
+
+  const x =
+    Math.floor(
+      (clientX - rect.left - offsetX) / scale
+    );
+
+  const y =
+    Math.floor(
+      (clientY - rect.top - offsetY) / scale
+    );
+
+  if (
+    x < 0 ||
+    y < 0 ||
+    x >= SIZE ||
+    y >= SIZE
+  ) {
+    return null;
+  }
+
+  return { x, y };
+}
+
+/* ---------------- CLICK ---------------- */
+
+world.addEventListener("click", async (event) => {
+
+  if (dragging) return;
+
+  const pixel = getPixelFromScreen(
+    event.clientX,
+    event.clientY
+  );
+
+  if (!pixel) return;
+
+  selectedX = pixel.x;
+  selectedY = pixel.y;
+
+  const key = `${pixel.x},${pixel.y}`;
+
+  if (pixels[key]) {
+
+    showMessage(
+      `🟩 Pixel ${pixel.x},${pixel.y} priklauso ${pixels[key].username}`
+    );
+
+  } else {
+
+    showMessage(
+      `Pixel ${pixel.x},${pixel.y} yra laisvas`
+    );
+  }
+});
+
+/* ---------------- BUY ---------------- */
+
+document.getElementById("buy").onclick = async () => {
+
+  if (selectedX === null) {
+
+    showMessage(
+      "Pirmiausia pasirink pixelį!"
+    );
+
+    return;
+  }
+
+  const username =
+    document.getElementById("username").value.trim();
+
+  const color =
+    document.getElementById("color").value;
+
+  if (!username) {
+
+    showMessage(
+      "Įrašyk username!"
+    );
+
+    return;
+  }
+
+  /*
+    Realioje versijoje čia bus siunčiama
+    užklausa į serverį, kuris sukuria
+    Stripe Checkout mokėjimą.
+  */
+
+  try {
+
+    const response = await fetch(
+      "/api/checkout",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify({
+
+          x: selectedX,
+          y: selectedY,
+          color: color,
+          username: username
+
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (data.url) {
+
+      window.location.href = data.url;
+
+    } else {
+
+      showMessage(
+        data.error ||
+        "Nepavyko pradėti mokėjimo."
+      );
+    }
+
+  } catch (error) {
+
+    /*
+      Kol backend dar neprijungtas,
+      parodome aiškų pranešimą.
+    */
+
+    showMessage(
+      "Backend dar neprijungtas. Kitame žingsnyje jį sukursime."
+    );
+  }
+};
+
+/* ---------------- LEADERBOARD ---------------- */
+
+document.getElementById("leaderboard").onclick =
+async () => {
+
+  const panel =
+    document.getElementById("panel");
+
+  panel.style.display =
+    panel.style.display === "block"
+      ? "none"
+      : "block";
+
+  if (panel.style.display !== "block")
+    return;
+
+  try {
+
+    const response =
+      await fetch("/api/leaderboard");
+
+    const leaders =
+      await response.json();
+
+    const container =
+      document.getElementById("leaders");
+
+    container.innerHTML = "";
+
+    leaders.forEach((user, index) => {
+
+      const div =
+        document.createElement("div");
+
+      div.className = "owner";
+
+      div.textContent =
+        `${index + 1}. ${user.username} — ${user.count}`;
+
+      container.appendChild(div);
+
+    });
+
+  } catch {
+
+    document.getElementById("leaders").textContent =
+      "Leaderboard dar neprijungtas.";
+  }
+};
+
+/* ---------------- STATS ---------------- */
+
+async function loadStats() {
+
+  try {
+
+    const response =
+      await fetch("/api/stats");
+
+    const data =
+      await response.json();
+
+    document.getElementById("claimed")
+      .textContent =
+      data.claimed.toLocaleString();
+
+    document.getElementById("remaining")
+      .textContent =
+      data.remaining.toLocaleString();
+
+  } catch {
+
+    // Backend dar neprijungtas.
+  }
+}
+
+/* ---------------- PIXELS ---------------- */
+
+async function loadPixels() {
+
+  try {
+
+    const response =
+      await fetch("/api/pixels");
+
+    const data =
+      await response.json();
+
+    pixels = {};
+
+    data.forEach(pixel => {
+
+      pixels[
+        `${pixel.x},${pixel.y}`
+      ] = pixel;
+
+    });
+
+    drawOwnedPixels();
+
+  } catch {
+
+    // Backend dar neprijungtas.
+  }
+}
+
+function drawOwnedPixels() {
+
+  document
+    .querySelectorAll(".owned")
+    .forEach(el => el.remove());
+
+  Object.values(pixels)
+    .forEach(pixel => {
+
+      const el =
+        document.createElement("div");
+
+      el.className = "owned";
+
+      el.style.position = "absolute";
+      el.style.width = "1px";
+      el.style.height = "1px";
+
+      el.style.left =
+        pixel.x + "px";
+
+      el.style.top =
+        pixel.y + "px";
+
+      el.style.background =
+        pixel.color;
+
+      el.title =
+        `${pixel.username}`;
+
+      grid.appendChild(el);
+
+    });
+}
+
+/* ---------------- PAN ---------------- */
+
+world.addEventListener(
+  "pointerdown",
+  event => {
+
+    dragging = false;
+
+    startX = event.clientX - offsetX;
+    startY = event.clientY - offsetY;
+
+    world.setPointerCapture(event.pointerId);
+  }
+);
+
+world.addEventListener(
+  "pointermove",
+  event => {
+
+    if (
+      event.buttons === 0 &&
+      event.pointerType !== "touch"
+    ) return;
+
+    const newX =
+      event.clientX - startX;
+
+    const newY =
+      event.clientY - startY;
+
+    if (
+      Math.abs(newX - offsetX) > 3 ||
+      Math.abs(newY - offsetY) > 3
+    ) {
+
+      dragging = true;
+    }
+
+    offsetX = newX;
+    offsetY = newY;
+
+    updateTransform();
+  }
+);
+
+world.addEventListener(
+  "pointerup",
+  event => {
+
+    world.releasePointerCapture(
+      event.pointerId
+    );
+  }
+);
+
+/* ---------------- ZOOM ---------------- */
+
+world.addEventListener(
+  "wheel",
+  event => {
+
+    event.preventDefault();
+
+    const oldScale = scale;
+
+    if (event.deltaY < 0)
+      scale *= 1.15;
+    else
+      scale /= 1.15;
+
+    scale =
+      Math.max(
+        0.1,
+        Math.min(30, scale)
+      );
+
+    const rect =
+      world.getBoundingClientRect();
+
+    const mouseX =
+      event.clientX - rect.left;
+
+    const mouseY =
+      event.clientY - rect.top;
+
+    offsetX =
+      mouseX -
+      (mouseX - offsetX) *
+      (scale / oldScale);
+
+    offsetY =
+      mouseY -
+      (mouseY - offsetY) *
+      (scale / oldScale);
+
+    updateTransform();
+
+  },
+  { passive: false }
+);
+
+/* ---------------- MESSAGE ---------------- */
+
+function showMessage(text) {
+
+  const box =
+    document.getElementById("message");
+
+  box.textContent = text;
+
+  box.style.display = "block";
+
+  setTimeout(() => {
+
+    box.style.display = "none";
+
+  }, 2500);
+}
+
+/* ---------------- START ---------------- */
+
+createGrid();
+
+loadStats();
+
+loadPixels();
+
+setInterval(
+  loadStats,
+  15000
+);
+
+setInterval(
+  loadPixels,
+  15000
+);
+
+</script>
+
+</body>
+  </html>
